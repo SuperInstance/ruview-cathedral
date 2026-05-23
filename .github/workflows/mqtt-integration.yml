@@ -79,10 +79,14 @@ jobs:
 
       - name: Verify unit tests still pass under --features mqtt
         working-directory: v2
+        # `cargo test` accepts a single TESTNAME filter, so we run the
+        # whole --lib suite here. That gives us the full 410-test green
+        # bar under --features mqtt (which is more reassuring than
+        # filtering anyway).
         run: >-
           cargo test -p wifi-densepose-sensing-server
           --features mqtt --no-default-features
-          --lib mqtt:: semantic:: cli::tests
+          --lib
           --no-fail-fast
 
       - name: Run integration tests against mosquitto
