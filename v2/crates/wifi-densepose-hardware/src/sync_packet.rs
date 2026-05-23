@@ -425,4 +425,47 @@ mod tests {
         assert_eq!(pkt.to_bytes().len(), SYNC_PACKET_SIZE);
         assert_eq!(SYNC_PACKET_SIZE, 32);
     }
+
+    /// ADR-110 iter 21 — cross-language wire-format conformance gate.
+    ///
+    /// These exact bytes are ALSO pinned in the Python test
+    /// `test_canonical_wire_bytes_match_rust_decoder` in
+    /// `archive/v1/tests/unit/test_esp32_binary_parser.py`. If this
+    /// canonical hex stops matching what Python emits for the same
+    /// SyncPacket fields, ONE of the decoders has drifted from the wire.
+    ///
+    /// Canonical packet: COM9 sync-pkt #1 from §A0.12 live capture.
+    #[test]
+    fn canonical_wire_bytes_match_python_decoder() {
+        // Exact bytes matching the Python pin (hex-decoded by hand to bytes).
+        let canonical: [u8; 32] = [
+            0x10, 0xa1, 0x11, 0xc5,  // magic 0xC511A110 (LE u32)
+            0x09,                     // node_id = 9
+            0x01,                     // proto_ver = 1
+            0x06,                     // flags: bit1=is_valid, bit2=smoothed_used
+            0x00,                     // reserved
+            0xf2, 0x6d, 0xb7, 0x01, 0x00, 0x00, 0x00, 0x00,  // local_us = 28_798_450
+            0xc5, 0xac, 0xa5, 0x01, 0x00, 0x00, 0x00, 0x00,  // epoch_us = 27_634_885
+            0x14, 0x00, 0x00, 0x00,  // sequence = 20
+            0x00, 0x00, 0x00, 0x00,  // reserved
+        ];
+        let decoded = SyncPacket::from_bytes(&canonical).unwrap();
+        assert_eq!(decoded.node_id, 9);
+        assert_eq!(decoded.proto_ver, 1);
+        assert_eq!(decoded.flags.to_byte(), 0x06);
+        assert!(!decoded.flags.is_leader);
+        assert!(decoded.flags.is_valid);
+        assert!(decoded.flags.smoothed_used);
+        assert_eq!(decoded.local_us, 28_798_450);
+        assert_eq!(decoded.epoch_us, 27_634_885);
+        assert_eq!(decoded.sequence, 20);
+        // §A0.10's measured 1.16-second boot delta.
+        assert_eq!(decoded.local_minus_epoch_us(), 1_163_565);
+
+        // Round-trip: re-encoding the decoded struct must produce the same
+        // canonical bytes — this is what catches any drift in to_bytes.
+        let re_encoded = decoded.to_bytes();
+        assert_eq!(re_encoded, canonical,
+                   "Rust to_bytes drifted from the canonical pin — Python decoder will break");
+    }
 }

@@ -364,3 +364,35 @@ class TestSyncPacketParser:
         assert csi_magic == ESP32BinaryParser.MAGIC
         assert sync_magic == SyncPacketParser.MAGIC
         assert csi_magic != sync_magic
+
+    def test_canonical_wire_bytes_match_rust_decoder(self):
+        """ADR-110 iter 21 — cross-language wire-format conformance gate.
+
+        These exact bytes also appear pinned in the Rust hardware crate's
+        `canonical_wire_bytes_match_python_decoder` test (same field
+        values, encoded by Rust's `SyncPacket::to_bytes`). If Python's
+        hardcoded hex stops matching what Rust produces from the equivalent
+        SyncPacket struct, ONE of the decoders has drifted from the wire.
+
+        Canonical packet: COM9 sync-pkt #1 from §A0.12 live capture.
+        """
+        canonical = bytes.fromhex(
+            "10a111c509010600"   # magic LE + node=9 + ver=1 + flags=0x06 + reserved
+            "f26db70100000000"   # local_us = 28_798_450 (LE u64)
+            "c5aca50100000000"   # epoch_us = 27_634_885 (LE u64)
+            "1400000000000000"   # sequence = 20 (LE u32) + 4 reserved bytes
+        )
+        assert len(canonical) == SyncPacketParser.SIZE == 32
+
+        pkt = SyncPacketParser.parse(canonical)
+        assert pkt.node_id == 9
+        assert pkt.proto_ver == 1
+        assert pkt.flags_raw == 0x06
+        assert pkt.is_leader is False
+        assert pkt.is_valid is True
+        assert pkt.smoothed_used is True
+        assert pkt.local_us == 28_798_450
+        assert pkt.epoch_us == 27_634_885
+        assert pkt.sequence == 20
+        # Recovered offset matches §A0.10's measured 1.16-second boot delta.
+        assert pkt.local_us - pkt.epoch_us == 1_163_565
