@@ -9,6 +9,10 @@ set(SRCS
     "rv_feature_state.c"
     "rv_mesh.c"
     "adaptive_controller.c"
+    # ADR-110 — ESP32-C6 capability modules (no-op stubs on other targets via #ifdef)
+    "c6_twt.c"
+    "c6_timesync.c"
+    "c6_lp_core.c"
 )
 
 # ESP-IDF v6+: headers must resolve via explicit REQUIRES (no implicit deps).
@@ -31,6 +35,13 @@ set(REQUIRES
     lwip
     mbedtls
 )
+
+# ADR-110: C6-only components — pulled in when building for esp32c6.
+# Note: CONFIG_* symbols are not available in main CMakeLists.txt evaluation —
+# we use the IDF_TARGET variable that idf.py sets from sdkconfig.defaults / set-target.
+if(IDF_TARGET STREQUAL "esp32c6")
+    list(APPEND REQUIRES ieee802154 ulp esp_hw_support)
+endif()
 
 # ADR-061: Mock CSI generator for QEMU testing + ADR-081 mock radio binding
 if(CONFIG_CSI_MOCK_ENABLED)

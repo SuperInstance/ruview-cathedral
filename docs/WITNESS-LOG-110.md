@@ -1,0 +1,93 @@
+# WITNESS-LOG-110 — ADR-110 ESP32-C6 firmware extension
+
+| Field | Value |
+|---|---|
+| **Date** | 2026-05-22 |
+| **Operator** | ruv |
+| **Firmware** | `esp32-csi-node` v0.6.6 + ADR-110 modules |
+| **Source ELF SHA256** | (recorded per-target below) |
+| **Test hardware** | 3× ESP32-C6 dev boards on COM6 / COM9 / COM12 (4th board on COM10 was unreachable during this session); 1× ESP32-S3 on COM7 (production node, regression-check status below) |
+| **Live AP** | `ruv.net` (the home AP visible to all boards). Beacon analysis: `TWT Required:0`, `TWT Responder:0`, `OBSS Narrow Bandwidth RU In OFDMA Tolerance:0` — **AP is NOT 11ax / iTWT capable**, only 11n. |
+| **Tracking issue** | [ruvnet/RuView#762](https://github.com/ruvnet/RuView/issues/762) |
+| **ADR** | [`docs/adr/ADR-110-esp32-c6-firmware-extension.md`](adr/ADR-110-esp32-c6-firmware-extension.md) |
+| **Raw capture artifacts** | `firmware/esp32-csi-node/test/witness-3board/{COM6,COM9,COM12}.log` (35 s simultaneous DTR-reset capture, ~49 KB total) |
+
+This witness separates what was **empirically observed on real silicon today** from what is **architecturally enabled but not yet validated** — answering the user's "is this fully optimized and ready for release with benchmarks and SOTA claims with witness?" question honestly.
+
+---
+
+## A. Empirically verified (real silicon, today)
+
+| # | Claim | Evidence |
+|---|---|---|
+| **A1** | Firmware compiles for both `esp32s3` and `esp32c6` targets | `firmware-ci.yml` matrix: `8mb`, `4mb`, `c6-4mb` rows. Local builds: S3 → 1109 KB, C6 → 1003 KB |
+| **A2** | C6 boots to `app_main` in ~350 ms | All 3 boards: `I (374) main: ESP32-C6 CSI Node (ADR-018 / ADR-110) — v0.6.6 — Node ID: N` |
+| **A3** | 802.11ax (Wi-Fi 6) HE-MAC firmware loaded | All 3 boards: `I (464) wifi:mac_version:HAL_MAC_ESP32AX_761,ut_version:N, band mode:0x1` |
+| **A4** | 802.15.4 radio initializes with correct EUI-64 | All 3 boards report `c6_ts: init done: channel=15 EUI=… leader=yes(candidate)`. EUIs match `esptool chip_id` reading exactly (see A5). |
+| **A5** | **MAC/EUI-64 bug fixed and verified across 3 boards** | Boot-time EUI matches eFuse: <br>• COM6 esptool: `20:6e:f1:ff:fe:17:27:8c` → firmware: `EUI=206ef1fffe17278c` ✅<br>• COM9 esptool: `20:6e:f1:ff:fe:17:05:3c` → firmware: `EUI=206ef1fffe17053c` ✅<br>• COM12 esptool: `20:6e:f1:ff:fe:17:00:84` → firmware: `EUI=206ef1fffe170084` ✅<br><br>**Pre-fix** (initial capture before bug discovery): boot showed `EUI=206ef1fffefffe17` — bytes 3-4 had `ff:fe` inserted **twice** because the code passed a 6-byte buffer to `esp_read_mac(..., ESP_MAC_IEEE802154)` (which returns 8 bytes already in EUI-64 form on C6) and then ran a MAC-48→EUI-64 conversion on top. Fix in `c6_timesync.c` reads 8 bytes directly. |
+| **A6** | WiFi STA can join `ruv.net` from a C6 board | COM9 + COM12: `wifi:state: assoc -> run (0x10)`. COM6 still connecting in 35 s window. |
+| **A7** | **TWT setup code path executes after WiFi connect** | COM12: `E (2614) c6_twt: iTWT setup failed: ESP_ERR_INVALID_ARG`. The error is **the ESP-IDF v5.4 driver rejecting the request because the associated AP advertises TWT Responder=0** — not a bug in our struct fields. Confirmed by inspecting the captured beacon log (A8). |
+| **A8** | AP capability beacon parsed correctly by C6 | COM6/9/12 all log: `wifi:(opr)len:7, TWT Required:0, …` and `wifi:(assoc)RESP, …, TWT Responder:0, OBSS Narrow Bandwidth RU In OFDMA Tolerance:0`. Confirms `ruv.net` is 11n-only — TWT cannot be exercised here without an 11ax AP swap. |
+| **A9** | TWT graceful-fallback path correct (post-fix) | After this run, `c6_twt.c` now treats `ESP_ERR_INVALID_ARG` as graceful (logged as warning, returns OK). Code change committed in this same set. |
+| **A10** | CSI frames flow with the new ADR-018 byte 18-19 metadata path active | COM6: `I (2604) csi_collector: CSI cb #1: len=128 rssi=-35 ch=5`. Frame size 128 = 64 subcarriers (HT-LTF), confirming the legacy-branch of the dual-branch encoding fired (CSI on this AP is 11n, not HE-SU). |
+| **A11** | Host-unit-test source compiles + is wired into CI | `firmware/esp32-csi-node/test/test_adr110_encoding.c` (deterministic checks for `mac48_to_eui64`, `eui64_bytes_to_u64`, PPDU-type encoding both branches, COM6/COM9 EUI ordering). CI workflow gates the `c6-4mb` build on its execution. Not yet run on host — no gcc/clang on the Windows dev box (esp-clang is riscv-only). Will execute in CI Ubuntu runner. |
+| **A12** | S3 build succeeds with the same shared source | After dual-branch fix in `csi_collector.c`: `S3 BUILD RC: 0`, binary 1109 KB (47 % partition slack on `partitions_display.csv`). Catches the regression class that bit me on the first attempt. |
+
+## B. Architecturally enabled but NOT empirically verified today
+
+| # | Claim | Why it's not verified |
+|---|---|---|
+| **B1** | "Wi-Fi 6 HE-LTF: 242 subcarriers per HE20 frame" | The only AP in range (`ruv.net`) is 11n-only. Every captured frame is 128 bytes = 64 subcarriers (HT-LTF, `ppdu_type=0`). No HE-SU/HE-MU/HE-TB observed. Even if an 11ax AP were available, **whether ESP-IDF v5.4's CSI callback exposes HE-LTF subcarriers via `wifi_csi_info_t.buf` is an open question** — the public API was designed for HT-LTF, and the driver may quietly downconvert. **Validate by capturing CSI against an 11ax AP and comparing `info->len` between HT and HE frames.** |
+| **B2** | "TWT-bounded deterministic CSI cadence (10 ms wake)" | No 11ax AP in range. The TWT setup *call* was exercised live and the graceful fallback path is now correct (A9), but the agreement itself was never accepted. **Validate by associating with an 11ax AP that has TWT Responder=1, then capturing the timestamped CSI cadence vs the wall clock.** |
+| **B3** | "±100 µs cross-node alignment over 802.15.4" | 3 boards initialized their radios with correct EUIs (A4/A5), but **none stepped down from candidate-leader to follower** during the 35-second multi-board capture. No "stepping down" log on any board. **Root-cause hypothesis:** the C6's single 2.4 GHz radio is shared between WiFi (on AP channel 5 = 2432 MHz) and 802.15.4 (on channel 15 = 2425 MHz), and the coex layer is preempting 802.15.4 RX in favour of the active WiFi STA. **Validate by either:** (a) configuring 802.15.4 on a non-overlapping channel (e.g. 26 = 2480 MHz), (b) running the experiment with WiFi disabled on at least two boards, or (c) raising the `IEEE802154` coex priority in menuconfig. Tracked as a separate issue. |
+| **B4** | "~5 µA hibernation for battery seed nodes" | No INA / Joulescope current measurement available on this bench. The shipped code uses `esp_deep_sleep_enable_gpio_wakeup` (ext1 path, ESP-IDF default ~10 µA), not a true LP-core polling program. The 5 µA number is the C6 datasheet figure for ULP-level hibernation, not a measured value. **Validate by hooking an INA219/INA226 between the dev board's 3V3 rail and the regulator output, then averaging current over a 60-second cycle with the LP-core armed.** |
+| **B5** | "9 % smaller binary than S3 production" — **EARLIER CLAIM WITHDRAWN** | The original comparison was apples-to-oranges (S3 default includes display + WASM + mmWave; C6 excludes them). **Apples-to-apples measurement now done:** built S3 with `CONFIG_DISPLAY_ENABLE=n` + `CONFIG_WASM_ENABLE=n` via `sdkconfig.defaults.s3-fair` — same CSI feature set as C6. Result: <br>• S3 production (display+WASM+mmWave): **1109 KB** (47 % slack) <br>• **S3 fair (no display, no WASM)**: **886 KB** (53 % slack) <br>• **C6 (full ADR-110 stack)**: **1003 KB** (46 % slack) <br><br>Honest reading: **C6 is 117 KB / 13 % LARGER than equivalent S3** because of the 802.15.4 PHY + OpenThread MTD stack that the S3 doesn't have. The C6 trade is: pay 13 % flash for 802.15.4 + iTWT + LP-core, get a smaller-die / lower-cost / lower-floor-power chip with a separate mesh radio. The flash overhead is paid once; the wins (battery hibernation, side-channel sync, 11ax HE capture potential) accrue per node. |
+
+## C. Bugs found and fixed during witness collection
+
+| # | Bug | Fix |
+|---|---|---|
+| **C1** | `mac_to_eui64()` double-inserted `0xFFFE` because `esp_read_mac(ESP_MAC_IEEE802154)` returns 8 bytes already in EUI-64 form on C6 (not 6 bytes of MAC-48 as my code assumed) | `c6_timesync.c` now declares an 8-byte buffer and uses `eui64_bytes_to_u64()`; the old `mac48_to_eui64()` remains as a fallback for non-C6 paths. Verified across 3 boards (A5). |
+| **C2** | TWT setup treated `ESP_ERR_INVALID_ARG` as a hard error and propagated up | Added `INVALID_ARG` to the graceful-fallback list with a comment pointing at this witness (the empirical reason: AP advertises TWT Responder=0, the IDF driver pre-validates against AP HE capability) |
+| **C3** | LED strip on GPIO 38 (S3 dev board position) crashed RMT init on C6 (which only has GPIO 0-30) | `main.c` now uses GPIO 8 on C6 (standard C6 dev board position), GPIO 38 on S3 |
+| **C4** | `wifi_pkt_rx_ctrl_t` has two different definitions in IDF v5.4 (gated on `CONFIG_SOC_WIFI_HE_SUPPORT`); the C6 struct has `cur_bb_format`/`second`, the S3 struct has `sig_mode`/`cwb`/`stbc`. Initial code only handled the C6 branch and broke S3 compilation. | `csi_collector.c` now has both branches gated on `CONFIG_SOC_WIFI_HE_SUPPORT`. Verified by S3 build green (A12). |
+
+## D. Bugs found but NOT yet fixed
+
+| # | Bug | Tracked |
+|---|---|---|
+| **D1** | 802.15.4 cross-board leader election doesn't fire under live WiFi load (likely coex preemption) | Task #30 / follow-up issue. Workaround: use non-overlapping channel. |
+| **D2** | COM10 board did not respond to `esptool chip_id` (timeout). Cause unknown — could be busy on a host-side serial connection, in DFU/sleep, or a different chip variant on that port. Not investigated. | (open) |
+
+## E. Reproducer
+
+```bash
+# 1. Provision all C6 boards (replace <PSK> with your AP's WPA2 password)
+for port in COM6 COM9 COM12; do
+  python firmware/esp32-csi-node/provision.py --port $port --chip esp32c6 \
+    --ssid "your-ap" --password "<PSK>" --target-ip 192.168.1.20 \
+    --node-id ${port#COM}
+done
+
+# 2. Build + flash for esp32c6
+cd firmware/esp32-csi-node
+idf.py set-target esp32c6 && idf.py build
+for port in COM6 COM9 COM12; do idf.py -p $port flash; done
+
+# 3. Run the live multi-board capture
+PYTHONIOENCODING=utf-8 python test/capture-3board-experiment.py
+
+# 4. Inspect captures
+ls test/witness-3board/      # COM6.log, COM9.log, COM12.log
+grep "c6_ts\|c6_twt\|HAL_MAC" test/witness-3board/*.log
+```
+
+## F. Verdict
+
+**Release-ready: NO.**
+
+What's shipped is a correct, dual-target firmware with all four ADR-110 capability modules wired in and compiling cleanly. **One of the four can be empirically claimed today** (the 802.15.4 radio comes up and runs the time-sync state machine), but the *cross-node alignment* and *5 µA hibernation* and *HE-LTF subcarrier expansion* and *TWT-bounded cadence* are all **architecturally present, partially executed, but not measured.**
+
+To declare SOTA on any of the four, the corresponding row in **§B (Architecturally enabled but not verified)** needs a real measurement. The plan in each row says exactly what hardware that would take.
+
+Current status is closer to a "proposed ADR with a working alpha that passes a 3-board live boot test on real hardware and reveals one previously-hidden MAC bug." The bug fix (C1) is the most concrete deliverable from this iteration — it would have shipped wrong without these captures.

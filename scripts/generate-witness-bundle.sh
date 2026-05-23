@@ -89,6 +89,21 @@ if [ -d "$REPO_ROOT/firmware/esp32-csi-node/main" ]; then
   find "$REPO_ROOT/firmware/esp32-csi-node/main/" -type f \( -name "*.c" -o -name "*.h" \) -exec sha256sum {} \; \
     > "$BUNDLE_DIR/firmware-manifest/source-hashes.txt" 2>/dev/null || true
   echo "  Firmware source files hashed."
+
+  # ADR-110: include pre-built S3 and C6 binary SHA-256s if archived
+  for target in s3-adr110 c6-adr110; do
+    if [ -d "$REPO_ROOT/firmware/esp32-csi-node/release_bins/$target" ]; then
+      sha256sum "$REPO_ROOT/firmware/esp32-csi-node/release_bins/$target/"*.bin \
+        > "$BUNDLE_DIR/firmware-manifest/binary-hashes-${target}.txt" 2>/dev/null \
+        && echo "  Binary hashes recorded for $target."
+    fi
+  done
+
+  # ADR-110: list which ESP-IDF target(s) the firmware supports today
+  cat > "$BUNDLE_DIR/firmware-manifest/supported-targets.txt" <<EOM
+esp32s3   (production CSI node — ADR-018, default sdkconfig.defaults, partitions_display.csv)
+esp32c6   (research target — ADR-110, sdkconfig.defaults.esp32c6 overlay, partitions_4mb.csv)
+EOM
 else
   echo "  (No firmware directory found — skipped)"
 fi

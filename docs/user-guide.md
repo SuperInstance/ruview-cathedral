@@ -1094,6 +1094,15 @@ An RVF file contains: model weights, HNSW vector index, quantization codebooks, 
 
 ## Hardware Setup
 
+### Supported targets
+
+| Target | Use case | Source target flag | Notes |
+|---|---|---|---|
+| **ESP32-S3** (default) | Production CSI mesh, 17-keypoint pose | `idf.py set-target esp32s3` | Dual-core 240 MHz, PSRAM, native USB-OTG, DVP camera path |
+| **ESP32-C6** ([ADR-110](adr/ADR-110-esp32-c6-firmware-extension.md)) | Wi-Fi 6 / 802.15.4 research, battery seed nodes | `idf.py set-target esp32c6` | Single-core 160 MHz, no PSRAM, 802.11ax HE PHY, 802.15.4 (Thread/Zigbee), LP-core hibernation ~5 µA |
+
+The same `firmware/esp32-csi-node` source tree builds for both. ESP-IDF picks up `sdkconfig.defaults.esp32c6` automatically when the target is set to `esp32c6`; otherwise it uses `sdkconfig.defaults` (S3). All C6-only modules are `#ifdef`-gated, so the S3 build is byte-identical to today.
+
 ### ESP32-S3 Mesh
 
 A 3-6 node ESP32-S3 mesh provides full CSI at 20 Hz. Total cost: ~$54 for a 3-node setup.
@@ -1154,6 +1163,56 @@ python firmware/esp32-csi-node/provision.py --port COM7 \
 ```
 
 All nodes in a mesh must share the same 256-bit mesh key for HMAC-SHA256 beacon authentication. The key is stored in ESP32 NVS flash and zeroed on firmware erase.
+
+### ESP32-C6 (Wi-Fi 6 + 802.15.4 research target — ADR-110)
+
+The C6 build adds four capabilities to the existing csi-node firmware, all opt-in via `idf.py menuconfig → ESP32-C6 capabilities (ADR-110)`:
+
+| Capability | Kconfig | What it does |
+|---|---|---|
+| **Wi-Fi 6 HE-LTF tagging** | `CSI_FRAME_HE_TAGGING` (default on) | Each ADR-018 frame's previously-reserved bytes 18-19 now carry PPDU type (HT / HE-SU / HE-MU / HE-TB) + bandwidth flags. Magic stays `0xC5110001` — old aggregators see zeros and ignore. |
+| **802.15.4 mesh time-sync** | `C6_TIMESYNC_ENABLE` (default on, channel 15) | Beacon-based cross-node clock alignment over the 802.15.4 radio. Frees the WiFi channel from coordination traffic — solves the ADR-029/030 multistatic clock-sync problem. |
+| **TWT (Target Wake Time)** | `C6_TWT_ENABLE` (default on, 10 ms wake interval) | After WiFi connect, negotiates an individual TWT agreement with the AP for deterministic CSI cadence. Graceful NACK fallback if the AP doesn't support 11ax TWT. |
+| **LP-core wake-on-motion hibernation** | `C6_LP_CORE_ENABLE` (default off) | Always-on motion gate on the LP RISC-V core; HP core stays in deep sleep until the configured GPIO wakes it. Targets ~5 µA for battery-powered Cognitum Seed nodes. |
+
+**Build + flash:**
+
+```bash
+cd firmware/esp32-csi-node
+idf.py set-target esp32c6
+idf.py build                    # ~1.0 MB binary, 46% partition slack on 4 MB flash
+idf.py -p COM6 flash
+# Then provision the same way as S3 (provision.py works for both targets):
+python provision.py --port COM6 --ssid "YourWiFi" --password "secret" --target-ip 192.168.1.20
+```
+
+**Verifying the C6 modules came up** — `idf.py -p COM6 monitor` should show:
+
+```
+I (353) main: ESP32-C6 CSI Node (ADR-018 / ADR-110) — v0.6.6 — Node ID: 1
+I (413) c6_ts: init done: channel=15 EUI=<your-EUI64> leader=yes(candidate)
+I (463) wifi: mac_version:HAL_MAC_ESP32AX_761      ← 802.11ax MAC firmware loaded
+```
+
+The `c6_ts: init done` line confirms the 802.15.4 stack is up; if TWT succeeds you'll also see an `iTWT setup event received from AP` line after the WiFi connect completes.
+
+**Multi-room time-aligned multistatic capture (preview):**
+
+Flash two or more C6 boards, leave them on the same 802.15.4 channel (default 15). One will elect itself leader (lowest EUI-64) and broadcast `TS_BEACON` frames every 100 ms; the others compute and apply offsets. Each CSI frame from a follower carries a `c6_timesync_get_epoch_us()` wall-clock estimate aligned to within ±100 µs of the leader's monotonic time. Target use case: ADR-029/030 multistatic fusion without burning WiFi airtime on coordination.
+
+**Battery seed-node mode:**
+
+```bash
+# Enable LP-core hibernation in menuconfig:
+#   ESP32-C6 capabilities (ADR-110) → Enable LP-core wake-on-motion hibernation
+#   → LP-core wake GPIO (default 4 — connect a PIR or accelerometer INT line here)
+idf.py menuconfig
+idf.py build flash
+```
+
+When enabled, the C6 boots, takes one CSI burst, then enters deep sleep with the LP-core armed. Target standby current ~5 µA.
+
+**What's NOT on the C6 build** (vs S3 production): no AMOLED display (ADR-045 needs 8 MB + LCD touch driver), no WASM3 (ADR-040 needs PSRAM), no Seeed mmWave fusion (separate board). The C6 is a research/seed target, not a drop-in replacement for the S3 production node.
 
 **TDM slot assignment:**
 

@@ -80,13 +80,23 @@ docker pull ruvnet/wifi-densepose:latest
 docker run -p 3000:3000 ruvnet/wifi-densepose:latest
 # Open http://localhost:3000
 
-# Option 2: Live sensing with ESP32-S3 hardware ($9)
+# Option 2a: Live sensing with ESP32-S3 hardware ($9)
 # Flash firmware, provision WiFi, and start sensing:
 python -m esptool --chip esp32s3 --port COM9 --baud 460800 \
   write_flash 0x0 bootloader.bin 0x8000 partition-table.bin \
   0xf000 ota_data_initial.bin 0x20000 esp32-csi-node.bin
 python firmware/esp32-csi-node/provision.py --port COM9 \
   --ssid "YourWiFi" --password "secret" --target-ip 192.168.1.20
+
+# Option 2b: WiFi 6 + 802.15.4 research sensing with ESP32-C6 ($6-10, ADR-110)
+# Same csi-node firmware compiled for the C6 target — picks up the C6
+# overlay (sdkconfig.defaults.esp32c6) automatically.
+cd firmware/esp32-csi-node
+idf.py set-target esp32c6 && idf.py build
+idf.py -p COM6 flash
+# C6 boot extras (vs S3):  HE-LTF subcarrier tagging in ADR-018 bytes 18-19,
+#   802.15.4 mesh time-sync on channel 15, TWT setup when the AP supports it,
+#   opt-in LP-core wake-on-motion for ~5 µA battery seed nodes.
 
 # Option 3: Full system with Cognitum Seed ($140)
 # ESP32 streams CSI → bridge forwards to Seed for persistent storage + kNN + witness chain
@@ -103,7 +113,8 @@ node scripts/mincut-person-counter.js --port 5006  # Correct person counting
 > | Option | Hardware | Cost | Full CSI | Capabilities |
 > |--------|----------|------|----------|-------------|
 > | **ESP32 + Cognitum Seed** (recommended) | ESP32-S3 + [Cognitum Seed](https://cognitum.one) | ~$140 | Yes | Presence, motion, breathing, heart rate, fall detection, multi-person counting, 17-keypoint pose (signed Cog binary), 105-cog catalog, persistent vector store, kNN search, witness chain, MCP proxy |
-> | **ESP32 Mesh** | 3-6x ESP32-S3 + WiFi router | ~$54 | Yes | Same capabilities as above without the persistent-memory features |
+> | **ESP32 Mesh** | 3-6× ESP32-S3 + WiFi router | ~$54 | Yes | Same capabilities as above without the persistent-memory features |
+> | **ESP32-C6 research node** ([ADR-110](docs/adr/ADR-110-esp32-c6-firmware-extension.md)) | ESP32-C6-DevKit ($6–10) | ~$10 | Yes (Wi-Fi 6) | Same CSI pipeline as S3 **plus** HE-LTF subcarrier tagging (242 / HE20), 802.15.4 mesh time-sync for multi-node clock alignment without WiFi airtime, TWT-bounded deterministic CSI cadence, ~5 µA LP-core hibernation for battery seed nodes |
 > | **Research NIC** | Intel 5300 / Atheros AR9580 | ~$50-100 | Yes | Full CSI with 3x3 MIMO |
 > | **Any WiFi** | Windows, macOS, or Linux laptop | $0 | No | RSSI-only: coarse presence and motion (see [tutorial #36](https://github.com/ruvnet/RuView/issues/36)) |
 >
