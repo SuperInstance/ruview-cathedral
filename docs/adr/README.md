@@ -50,6 +50,7 @@ Statuses: **Proposed** (under discussion), **Accepted** (approved and/or impleme
 | [ADR-040](ADR-040-wasm-programmable-sensing.md) | WASM Programmable Sensing (Tier 3) | Accepted |
 | [ADR-041](ADR-041-wasm-module-collection.md) | WASM Module Collection (65 edge modules) | Accepted (hardware-validated) |
 | [ADR-044](ADR-044-provisioning-tool-enhancements.md) | Provisioning Tool Enhancements | Proposed |
+| [ADR-110](ADR-110-esp32-c6-firmware-extension.md) | ESP32-C6 firmware extension — Wi-Fi 6 / 802.15.4 / TWT / LP-core | Accepted (firmware shipped, live capture hardware-blocked — see [`WITNESS-LOG-110`](../WITNESS-LOG-110.md)) |
 
 ### Signal processing and sensing
 
