@@ -35,6 +35,14 @@ pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
 # budget by avoiding optional BLAS/openssl chains.
 wifi-densepose-core = { version = "0.3.0", path = "../v2/crates/wifi-densepose-core" }
 
+# P3 — vitals extraction (HR/BR via the 4-stage pipeline). Pure-sync;
+# no tokio (Q5 audited 2026-05-24); safe to wrap in py.allow_threads.
+wifi-densepose-vitals = { version = "0.3.0", path = "../v2/crates/wifi-densepose-vitals" }
+
+# numpy bridge — needed for P3.5 BfldFrame (Complex64 ndarray) and for
+# the future P3 CsiFrame numpy round-trip.
+numpy = "0.22"
+
 [dev-dependencies]
 # Doc-test infrastructure for the Python-facing examples in the bound
 # Rust functions. Lands properly in P2 once #[pyfunction]s exist to test.

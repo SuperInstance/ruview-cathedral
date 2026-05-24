@@ -17,8 +17,10 @@
 use pyo3::prelude::*;
 
 mod bindings {
+    pub mod bfld;
     pub mod keypoint;
     pub mod pose;
+    pub mod vitals;
 }
 
 /// Version of the bound Rust core. Surfaced to Python as
@@ -38,6 +40,8 @@ fn build_features() -> Vec<&'static str> {
     feats.push("p1-scaffold");
     feats.push("p2-keypoint-bindings"); // Keypoint + KeypointType
     feats.push("p2-pose-bindings"); // BoundingBox + PersonPose + PoseEstimate
+    feats.push("p3-vitals-bindings"); // BreathingExtractor + HeartRateExtractor + VitalEstimate
+    feats.push("p3.5-bfld-bindings"); // BfldFrame + BfldReport + BfldKind (stub Rust)
     feats
 }
 
@@ -71,5 +75,10 @@ fn wifi_densepose_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     bindings::keypoint::register(m)?;
     // P2 — BoundingBox + PersonPose + PoseEstimate bindings.
     bindings::pose::register(m)?;
+    // P3 — Vital sign extraction bindings.
+    bindings::vitals::register(m)?;
+    // P3.5 — BFLD bindings (stub Rust; future wifi-densepose-bfld crate
+    // will replace the stub without changing the Python API).
+    bindings::bfld::register(m)?;
     Ok(())
 }

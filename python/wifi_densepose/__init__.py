@@ -45,6 +45,18 @@ BoundingBox = _native.BoundingBox
 PersonPose = _native.PersonPose
 PoseEstimate = _native.PoseEstimate
 
+# ─── P3 — Vital sign extraction ──────────────────────────────────────
+VitalStatus = _native.VitalStatus
+VitalEstimate = _native.VitalEstimate
+VitalReading = _native.VitalReading
+BreathingExtractor = _native.BreathingExtractor
+HeartRateExtractor = _native.HeartRateExtractor
+
+# ─── P3.5 — BFLD (Beamforming Feedback Loop Data) ─────────────────────
+BfldKind = _native.BfldKind
+BfldFrame = _native.BfldFrame
+BfldReport = _native.BfldReport
+
 
 __rust_version__: str = _native.__rust_version__
 """Version of the bound Rust core. Useful for bug reports."""
@@ -80,4 +92,14 @@ __all__ = [
     "BoundingBox",
     "PersonPose",
     "PoseEstimate",
+    # P3 — vital sign extraction
+    "VitalStatus",
+    "VitalEstimate",
+    "VitalReading",
+    "BreathingExtractor",
+    "HeartRateExtractor",
+    # P3.5 — BFLD (forward-compat surface for the future Rust crate)
+    "BfldKind",
+    "BfldFrame",
+    "BfldReport",
 ]

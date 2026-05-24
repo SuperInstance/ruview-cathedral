@@ -49,13 +49,24 @@ python/
 
 ## Phase status (per ADR-117 §6)
 
-- ✅ **P1 — Scaffold (this commit)**: module loads, version constant
-  exposed, 6 smoke tests pass via `maturin develop`.
-- ⏳ **P2 — Core type bindings**: `CsiFrame`, `Keypoint`, `PoseEstimate`.
-- ⏳ **P3 — Vitals + signal DSP**: 4-stage HR/BR pipeline + `CsiProcessor`
-  + `PhaseSanitizer`, with `allow_threads` GIL release on hot loops.
+- ✅ **P1 — Scaffold**: module loads, version constant exposed,
+  6 smoke tests pass via `maturin develop`.
+- ✅ **P2 — Core type bindings**: `Keypoint`, `KeypointType`,
+  `BoundingBox`, `PersonPose`, `PoseEstimate`. 51 additional tests.
+- ✅ **P3 — Vitals + signal DSP**: `VitalStatus`, `VitalEstimate`,
+  `VitalReading`, `BreathingExtractor`, `HeartRateExtractor` with
+  `py.allow_threads` GIL release on hot loops (Q5 tokio audit on
+  2026-05-24 confirmed core/vitals/signal are pure-sync). 17 tests.
+- ✅ **P3.5 — BFLD bindings (stub Rust)**: `BfldKind`, `BfldFrame`,
+  `BfldReport` — forward-compatible Python surface for 802.11ac/ax/be
+  Beamforming Feedback Loop Data. numpy Complex64 bridge. 19 tests.
+  Real Rust ingestion lands post-v2.0 in a `wifi-densepose-bfld`
+  crate (see ADR-117 §11.11/12); the Python API does not change.
 - ⏳ **P4 — WS/MQTT client**: pure-Python `wifi_densepose.client` extra.
 - ⏳ **P5 — cibuildwheel + PyPI publish**: Linux/macOS/Windows × abi3-py310.
+- ⏳ **P-tomb — v1.99.0 tombstone wheel**: pure-Python ImportError
+  with migration URL, published to PyPI to soft-fence v1.x users
+  before v2.0 ships.
 
 Each phase ends with a checkbox PR. Tests are additive — every phase's
 smoke tests must still pass after later phases land.
