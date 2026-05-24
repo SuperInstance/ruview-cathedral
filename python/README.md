@@ -62,7 +62,12 @@ python/
   Beamforming Feedback Loop Data. numpy Complex64 bridge. 19 tests.
   Real Rust ingestion lands post-v2.0 in a `wifi-densepose-bfld`
   crate (see ADR-117 §11.11/12); the Python API does not change.
-- ⏳ **P4 — WS/MQTT client**: pure-Python `wifi_densepose.client` extra.
+- ✅ **P4 — WS/MQTT client**: pure-Python `wifi_densepose.client` extra
+  (no Rust). `SensingClient` (asyncio websockets), `RuViewMqttClient`
+  (paho-mqtt v2 with VERSION2 callbacks), `HABlueprintHelper` (HA
+  discovery payload parser), `SemanticPrimitiveListener` (typed router
+  for the 10 HA-MIND primitives from ADR-115 §3.12). 63 tests including
+  end-to-end against an in-process `websockets.serve` fixture.
 - ⏳ **P5 — cibuildwheel + PyPI publish**: Linux/macOS/Windows × abi3-py310.
 - ⏳ **P-tomb — v1.99.0 tombstone wheel**: pure-Python ImportError
   with migration URL, published to PyPI to soft-fence v1.x users
