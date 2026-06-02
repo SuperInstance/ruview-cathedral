@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/wifi-densepose-core",
     "crates/wifi-densepose-signal",
+    "crates/wifi-densepose-cathedral",   # ADR-xxx — Cathedral-probe spectral graph analysis
     "crates/wifi-densepose-nn",
     # wifi-densepose-api / -db / -config: removed in #578.
     # The crate names were reserved early for an envisioned REST/database/config

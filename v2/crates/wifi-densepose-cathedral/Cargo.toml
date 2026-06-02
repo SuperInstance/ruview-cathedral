@@ -1,0 +1,16 @@
+[package]
+name = "wifi-densepose-cathedral"
+version = "0.1.0"
+edition = "2021"
+description = "Spectral graph analysis for RuView WiFi spatial intelligence — community detection, structural holes, and connectivity measurement via cathedral-probe"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ruvnet/RuView"
+keywords = ["wifi", "sensing", "spectral", "graph", "topology"]
+categories = ["science", "algorithms"]
+
+[dependencies]
+cathedral-probe = { path = "/tmp/cathedral-probe" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+ndarray = { workspace = true }
